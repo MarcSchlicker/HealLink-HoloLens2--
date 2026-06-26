@@ -26,7 +26,7 @@ public sealed class HoloLensWebRtcBuildArchitecture : IPreprocessBuildWithReport
         }
     }
 
-    [MenuItem("MedXR/Prepare HoloLens WebRTC Build")]
+    [MenuItem("HealLink/Prepare HoloLens WebRTC Build")]
     public static void PrepareBuild()
     {
         EnsureArmArchitecture(true);

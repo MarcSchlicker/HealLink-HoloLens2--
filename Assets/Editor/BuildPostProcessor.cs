@@ -6,9 +6,9 @@ using UnityEngine;
 
 public class BuildPostProcessor
 {
-    private const string ImmersivePackageName = "MedXR-Immersive";
-    private const string ImmersivePackageVersion = "1.0.39.0";
-    private const string ImmersivePhoneProductId = "1fe63616-fc08-48a6-9bd5-0b7f8c039059";
+    private const string PackageName = "HealLink-Trainee";
+    private const string PackageVersion = "1.0.39.0";
+    private const string PhoneProductId = "1fe63616-fc08-48a6-9bd5-0b7f8c039059";
     private const string FoundationNamespace =
         "http://schemas.microsoft.com/appx/manifest/foundation/windows10";
     private const string PhoneNamespace =
@@ -77,7 +77,7 @@ public class BuildPostProcessor
         document.PreserveWhitespace = true;
         document.Load(manifestPath);
 
-        ApplyImmersivePackageIdentity(document);
+        ApplyPackageIdentity(document);
         AddNamespace(document, "xmlns:rescap", RestrictedCapabilityNamespace);
         AddCapability(
             document,
@@ -94,14 +94,14 @@ public class BuildPostProcessor
         document.Save(manifestPath);
 
         Debug.Log(
-            "Prepared separate foreground HoloLens package '" +
-            ImmersivePackageName +
+            "Prepared HoloLens package '" +
+            PackageName +
             "' with PhoneProductId " +
-            ImmersivePhoneProductId +
+            PhoneProductId +
             ".");
     }
 
-    private static void ApplyImmersivePackageIdentity(XmlDocument document)
+    private static void ApplyPackageIdentity(XmlDocument document)
     {
         XmlNode identity = document.GetElementsByTagName(
             "Identity",
@@ -116,8 +116,8 @@ public class BuildPostProcessor
                 "The generated UWP manifest is missing Identity or PhoneIdentity.");
         }
 
-        identity.Attributes["Name"].Value = ImmersivePackageName;
-        identity.Attributes["Version"].Value = ImmersivePackageVersion;
-        phoneIdentity.Attributes["PhoneProductId"].Value = ImmersivePhoneProductId;
+        identity.Attributes["Name"].Value = PackageName;
+        identity.Attributes["Version"].Value = PackageVersion;
+        phoneIdentity.Attributes["PhoneProductId"].Value = PhoneProductId;
     }
 }

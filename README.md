@@ -18,6 +18,19 @@ The HoloLens 2 project is the mixed-reality endpoint of HealLink. It runs on Hol
 - Optional microphone streaming and WAV diagnostics for debugging.
 - Local HoloLens IP overlay and helper scripts for device setup.
 
+## Unity Build Settings
+
+The app is configured as `HealLink Trainee` for the HoloLens 2 UWP build. The included build scene is `Assets/Scenes/HealLinkHoloLens2.unity`.
+
+Use these settings when building from Unity:
+
+- Platform: Universal Windows Platform
+- Target device: HoloLens
+- Architecture: ARM
+- Build type: D3D Project
+- App/product name: `HealLink Trainee`
+- UWP package name: `HealLink-Trainee`
+
 ## Important Project Paths
 
 | Path | Description |
