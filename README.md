@@ -14,6 +14,21 @@ This repository contains the HoloLens 2 Unity endpoint for HealLink. It receives
 | `Packages/` | Unity package manifest plus local Mixed Reality package archives and the MixedReality-WebRTC package. |
 | `ProjectSettings/` | Unity project, player, XR, quality, input, and build settings. |
 
+## Required Companion Appx Packages
+
+The HoloLens setup also needs the 2D HL2SS companion app so the Quest can read
+the HoloLens PV camera and AHAT depth streams. In the integration repository,
+the required prebuilt packages are kept directly in the sibling 2D-HL2SS build
+folder:
+
+- [`../2D_HL2SS/Build/hl2ss unity_1.0.37.0_ARM64.appx`](../2D_HL2SS/Build/hl2ss%20unity_1.0.37.0_ARM64.appx)
+- [`../2D_HL2SS/Build/Microsoft.VCLibs.ARM64.14.00.appx`](../2D_HL2SS/Build/Microsoft.VCLibs.ARM64.14.00.appx)
+
+Install `hl2ss unity_1.0.37.0_ARM64.appx` as the app package through the
+HoloLens Device Portal and add `Microsoft.VCLibs.ARM64.14.00.appx` as the
+dependency package. These packages are the companion HL2SS server; the
+`HealLink Trainee` app itself is built from this Unity project.
+
 ## HoloLens-Side Architecture
 
 The HoloLens scene is built around one main runtime receiver:
