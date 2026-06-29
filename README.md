@@ -14,20 +14,19 @@ This repository contains the HoloLens 2 Unity endpoint for HealLink. It receives
 | `Packages/` | Unity package manifest plus local Mixed Reality package archives and the MixedReality-WebRTC package. |
 | `ProjectSettings/` | Unity project, player, XR, quality, input, and build settings. |
 
-## Required Companion Appx Packages
+## Prebuilt Appx Packages
 
-The HoloLens setup also needs the 2D HL2SS companion app so the Quest can read
-the HoloLens PV camera and AHAT depth streams. In the integration repository,
-the required prebuilt packages are kept directly in the sibling 2D-HL2SS build
-folder:
+For normal installation on the HoloLens, the repository includes the current
+`HealLink Trainee` app package and its required ARM dependency directly in
+[`Build/`](Build/):
 
-- [`../2D_HL2SS/Build/hl2ss unity_1.0.37.0_ARM64.appx`](../2D_HL2SS/Build/hl2ss%20unity_1.0.37.0_ARM64.appx)
-- [`../2D_HL2SS/Build/Microsoft.VCLibs.ARM64.14.00.appx`](../2D_HL2SS/Build/Microsoft.VCLibs.ARM64.14.00.appx)
+- [`HealLink Trainee_1.0.39.0_ARM.appx`](Build/HealLink%20Trainee_1.0.39.0_ARM.appx)
+- [`Microsoft.VCLibs.ARM.14.00.appx`](Build/Microsoft.VCLibs.ARM.14.00.appx)
 
-Install `hl2ss unity_1.0.37.0_ARM64.appx` as the app package through the
-HoloLens Device Portal and add `Microsoft.VCLibs.ARM64.14.00.appx` as the
-dependency package. These packages are the companion HL2SS server; the
-`HealLink Trainee` app itself is built from this Unity project.
+Install `HealLink Trainee_1.0.39.0_ARM.appx` as the app package through the
+HoloLens Device Portal and add `Microsoft.VCLibs.ARM.14.00.appx` as the
+dependency package. Rebuild from Unity only when the HoloLens app source has
+changed.
 
 ## HoloLens-Side Architecture
 

@@ -5,7 +5,10 @@
 /[Tt]emp/
 /[Ll]ibrary/
 /[Oo]bj/
-/[Bb]uild/
+/[Bb]uild/**
+!/[Bb]uild/
+!/[Bb]uild/HealLink[ ]Trainee_1.0.39.0_ARM.appx
+!/[Bb]uild/Microsoft.VCLibs.ARM.14.00.appx
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
