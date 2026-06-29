@@ -12,7 +12,7 @@ public sealed class HololensMicrophoneWavRecorder : MonoBehaviour
     public int sampleRate = 48000;
     public int ringBufferSeconds = 10;
     public float segmentSeconds = 30f;
-    [Tooltip("Gain applied only to the debug WAV file. The native HL2SS microphone stream is not changed by this recorder.")]
+    [Tooltip("Gain applied only to the debug WAV file. WebRTC audio playback is not changed by this recorder.")]
     public float wavGain = 16f;
     [Range(0.1f, 1f)]
     public float wavLimiterCeiling = 0.95f;

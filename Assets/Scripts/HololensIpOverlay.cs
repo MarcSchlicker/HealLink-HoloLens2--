@@ -3,12 +3,18 @@ using System.Net;
 using System.Net.Sockets;
 using TMPro;
 using UnityEngine;
+#if ENABLE_WINMD_SUPPORT
+using Windows.Networking;
+using Windows.Networking.Connectivity;
+#endif
 
 [ExecuteAlways]
 [DisallowMultipleComponent]
 public sealed class HololensIpOverlay : MonoBehaviour
 {
     private const string OverlayRootName = "HololensIpOverlay";
+    private const string EditorPreviewText = "Editor Preview";
+    private const string NoIpAddressText = "No IP address";
 
     [Header("State")]
     public bool showOverlay = true;
@@ -37,7 +43,7 @@ public sealed class HololensIpOverlay : MonoBehaviour
     public int fontSize = 24;
     public Vector2 margin = new Vector2(12f, 12f);
 
-    private string currentIp = "keine IP";
+    private string currentIp = NoIpAddressText;
     private float nextRefreshTime;
     private Material backgroundMaterial;
     private GUIStyle labelStyle;
@@ -316,7 +322,7 @@ public sealed class HololensIpOverlay : MonoBehaviour
     {
         if (!Application.isPlaying && string.IsNullOrEmpty(currentIp))
         {
-            return "IP: Editor Vorschau";
+            return "IP: " + EditorPreviewText;
         }
 
         return "IP: " + currentIp;
@@ -418,21 +424,73 @@ public sealed class HololensIpOverlay : MonoBehaviour
     {
         if (!Application.isPlaying)
         {
-            return "Editor Vorschau";
+            return EditorPreviewText;
         }
 
-#if WINDOWS_UWP && !UNITY_EDITOR
-        string ip = hl2ss.GetIPAddress();
-        ip = string.IsNullOrEmpty(ip) ? string.Empty : ip.Trim('\0', ' ', '\r', '\n', '\t');
-        return string.IsNullOrEmpty(ip) ? "keine IP" : ip;
+#if ENABLE_WINMD_SUPPORT
+        string uwpIp = TryReadUwpIpv4Address();
+        return string.IsNullOrEmpty(uwpIp) ? NoIpAddressText : uwpIp;
 #else
+        string dotNetIp = TryReadDotNetIpv4Address();
+        return string.IsNullOrEmpty(dotNetIp) ? NoIpAddressText : dotNetIp;
+#endif
+    }
+
+#if ENABLE_WINMD_SUPPORT
+    private static string TryReadUwpIpv4Address()
+    {
+        try
+        {
+            string fallbackAddress = string.Empty;
+            ConnectionProfile connectionProfile = NetworkInformation.GetInternetConnectionProfile();
+            Guid? activeAdapterId = null;
+            if (connectionProfile != null && connectionProfile.NetworkAdapter != null)
+            {
+                activeAdapterId = connectionProfile.NetworkAdapter.NetworkAdapterId;
+            }
+
+            foreach (HostName hostName in NetworkInformation.GetHostNames())
+            {
+                if (hostName == null ||
+                    hostName.Type != HostNameType.Ipv4 ||
+                    hostName.IPInformation == null ||
+                    !IsUsableIpv4Address(hostName.CanonicalName))
+                {
+                    continue;
+                }
+
+                if (activeAdapterId.HasValue &&
+                    hostName.IPInformation.NetworkAdapter != null &&
+                    hostName.IPInformation.NetworkAdapter.NetworkAdapterId == activeAdapterId.Value)
+                {
+                    return hostName.CanonicalName;
+                }
+
+                if (string.IsNullOrEmpty(fallbackAddress))
+                {
+                    fallbackAddress = hostName.CanonicalName;
+                }
+            }
+
+            return fallbackAddress;
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+#endif
+
+#if !ENABLE_WINMD_SUPPORT
+    private static string TryReadDotNetIpv4Address()
+    {
         try
         {
             IPAddress[] addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
             for (int i = 0; i < addresses.Length; i++)
             {
                 IPAddress address = addresses[i];
-                if (address != null && address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                if (address != null && IsUsableIpv4Address(address.ToString()))
                 {
                     return address.ToString();
                 }
@@ -442,8 +500,18 @@ public sealed class HololensIpOverlay : MonoBehaviour
         {
         }
 
-        return "keine IP";
+        return string.Empty;
+    }
 #endif
+
+    private static bool IsUsableIpv4Address(string value)
+    {
+        IPAddress address;
+        return !string.IsNullOrWhiteSpace(value) &&
+               IPAddress.TryParse(value, out address) &&
+               address.AddressFamily == AddressFamily.InterNetwork &&
+               !IPAddress.IsLoopback(address) &&
+               !address.Equals(IPAddress.Any);
     }
 
     private static void DestroyUnityObject(UnityEngine.Object target)
