@@ -23,9 +23,10 @@ The HoloLens scene is built around one main runtime receiver:
 3. Unity's main thread processes queued packets, because scene objects and transforms must be touched from the main thread.
 4. Hand packets are converted from Quest camera-local poses into HoloLens world poses when `poseSpace` is `CameraLocal`.
 5. Normalized joint names are mapped onto the existing MRTK hand rig transforms.
-6. Stroke events create and update `LineRenderer` objects for remote drawing.
-7. Audio normally runs through `WebRtcAudioPeer`, which builds a runtime MixedReality-WebRTC audio peer and uses `LanWebRtcSignaler` for local UDP signaling.
-8. `HololensIpOverlay` anchors a small IP label in front of the camera so the Quest side can connect to the correct HoloLens address.
+6. The remote hand material adapts brightness and transparency from the HoloLens ambient light sensor, with an editor fallback based on Unity ambient lighting.
+7. Stroke events create and update `LineRenderer` objects for remote drawing.
+8. Audio normally runs through `WebRtcAudioPeer`, which builds a runtime MixedReality-WebRTC audio peer and uses `LanWebRtcSignaler` for local UDP signaling.
+9. `HololensIpOverlay` anchors a small IP label in front of the camera so the Quest side can connect to the correct HoloLens address.
 
 The runtime data flow is:
 
@@ -42,13 +43,11 @@ Quest app
   <-> HoloLens microphone/audio playback
 ```
 
-The project no longer writes runtime debug captures such as WAV, CSV, or screenshot files. Build-time icon generation still writes the required UWP logo PNG files into Unity's generated build folder.
-
 ## Runtime Scripts
 
 | Script | Role |
 | --- | --- |
-| `QuestHandDataReceiver.cs` | Core HoloLens receiver. Handles UDP packet intake, Quest-to-HoloLens pose conversion, MRTK hand retargeting, remote drawing, and MRTK pointer visibility settings. |
+| `QuestHandDataReceiver.cs` | Core HoloLens receiver. Handles UDP packet intake, Quest-to-HoloLens pose conversion, MRTK hand retargeting, adaptive remote hand visibility, remote drawing, and MRTK pointer visibility settings. |
 | `WebRtcAudioPeer.cs` | Creates the runtime MixedReality-WebRTC peer connection, microphone source, audio receiver, output `AudioSource`, and LAN signaler. |
 | `LanWebRtcSignaler.cs` | Exchanges SDP and ICE messages over UDP. Media does not travel through this socket; it only bootstraps the WebRTC peer-to-peer audio connection. |
 | `HololensIpOverlay.cs` | Shows the current local IPv4 address in a camera-anchored world overlay, with a GUI fallback for editor/play-mode visibility. |
@@ -78,6 +77,13 @@ The project no longer writes runtime debug captures such as WAV, CSV, or screens
 | WebRTC signaling on HoloLens | HoloLens listens on UDP `5076`. |
 | WebRTC signaling on Quest | Quest listens on UDP `5077`. |
 | IP overlay refresh | Once per second. |
+| Remote hand light sampling | Every `0.5` seconds by default. |
+
+## Remote Hand Visibility
+
+`QuestHandDataReceiver` keeps the incoming Quest hand hologram readable across different rooms by mapping ambient light in lux to hand material brightness and alpha. Dark rooms use lower brightness and lower alpha so the hand does not cover the scene. Bright rooms raise both values so the hologram remains visible against stronger real-world light.
+
+The HoloLens build reads `Windows.Devices.Sensors.LightSensor` when available. In the Unity editor or on devices without that sensor, the script falls back to Unity's ambient lighting so the behavior can still be previewed. The relevant inspector values are `adaptRemoteHandVisibilityToRoomLight`, `darkRoomLux`, `brightRoomLux`, `darkRoomHandBrightness`, `brightRoomHandBrightness`, `darkRoomHandAlpha`, and `brightRoomHandAlpha`.
 
 ## Unity Build Settings
 
@@ -93,10 +99,6 @@ Use these settings when building from Unity:
 - Build scene: `Assets/Scenes/HealLinkHoloLens2.unity`
 
 The editor helper `HealLink/Prepare HoloLens WebRTC Build` can be used to force the correct UWP architecture before building.
-
-## Git Hygiene
-
-The repository uses a Unity-focused `.gitignore`. Unity-generated folders such as `Library/`, `Temp/`, `Build/`, `Logs/`, and `UserSettings/` are ignored. Unity `.meta` files inside tracked asset folders must stay committed because Unity uses them for stable scene and prefab references.
 
 ## License
 

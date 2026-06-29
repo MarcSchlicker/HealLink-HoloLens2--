@@ -1048,6 +1048,14 @@ MonoBehaviour:
   remoteHandColor: {r: 0.12, g: 0.72, b: 1, a: 0.16078432}
   remoteHandAlpha: 0.22
   remoteHandBrightness: 0.38
+  adaptRemoteHandVisibilityToRoomLight: 1
+  roomLightSampleIntervalSeconds: 0.5
+  darkRoomLux: 30
+  brightRoomLux: 650
+  darkRoomHandBrightness: 0.32
+  brightRoomHandBrightness: 0.95
+  darkRoomHandAlpha: 0.16
+  brightRoomHandAlpha: 0.45
   enableRemoteHandEmission: 0
   showQuestJointVisual: 0
   jointSphereDiameter: 0.018

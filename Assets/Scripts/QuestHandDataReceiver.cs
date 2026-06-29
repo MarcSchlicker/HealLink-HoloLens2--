@@ -8,6 +8,9 @@ using Microsoft.MixedReality.Toolkit;
 using Microsoft.MixedReality.Toolkit.Input;
 using Microsoft.MixedReality.Toolkit.Utilities;
 using UnityEngine;
+#if ENABLE_WINMD_SUPPORT
+using Windows.Devices.Sensors;
+#endif
 
 /// <summary>
 /// Receives Quest-side hand and drawing packets and applies them to the HoloLens scene.
@@ -47,11 +50,27 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
     [Header("Remote hand look")]
     public bool applyRemoteHandMaterial = true;
     public bool reapplyRemoteHandMaterialEveryFrame = true;
-    public Color remoteHandColor = new Color(0.12f, 0.72f, 1f, 0.7f);
+    public Color remoteHandColor = new Color(0.12f, 0.72f, 1f, 0.18f);
     [Range(0.02f, 1f)]
-    public float remoteHandAlpha = 0.35f;
+    public float remoteHandAlpha = 0.22f;
     [Range(0.05f, 1.5f)]
-    public float remoteHandBrightness = 0.65f;
+    public float remoteHandBrightness = 0.38f;
+    [Tooltip("Adjust remote hand brightness and alpha from the room's ambient light.")]
+    public bool adaptRemoteHandVisibilityToRoomLight = true;
+    [Tooltip("How often the HoloLens ambient light sensor is sampled.")]
+    public float roomLightSampleIntervalSeconds = 0.5f;
+    [Tooltip("Lux value treated as a dark room.")]
+    public float darkRoomLux = 30f;
+    [Tooltip("Lux value treated as a bright room.")]
+    public float brightRoomLux = 650f;
+    [Range(0.05f, 1.5f)]
+    public float darkRoomHandBrightness = 0.32f;
+    [Range(0.05f, 1.5f)]
+    public float brightRoomHandBrightness = 0.95f;
+    [Range(0.02f, 1f)]
+    public float darkRoomHandAlpha = 0.16f;
+    [Range(0.02f, 1f)]
+    public float brightRoomHandAlpha = 0.45f;
     public bool enableRemoteHandEmission = false;
     public bool showQuestJointVisual = false;
     public float jointSphereDiameter = 0.018f;
@@ -101,6 +120,12 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
     private bool lastDisableMrtkGazePointer;
     private float nextMrtkPointerApplyTime;
     private WebRtcAudioPeer webRtcAudioPeer;
+    private float effectiveRemoteHandAlpha = 0.22f;
+    private float effectiveRemoteHandBrightness = 0.38f;
+    private float nextRoomLightSampleTime;
+#if ENABLE_WINMD_SUPPORT
+    private LightSensor ambientLightSensor;
+#endif
 
     private void OnEnable()
     {
@@ -114,6 +139,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
 
         RebuildBoneMaps();
+        UpdateRemoteHandVisibilityForRoomLight(true);
         ApplyRemoteHandStyle();
         ResolveTargetCamera();
         mrtkPointerSettingsApplied = false;
@@ -127,7 +153,9 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (reapplyRemoteHandMaterialEveryFrame)
+        bool remoteHandVisibilityChanged = UpdateRemoteHandVisibilityForRoomLight(false);
+
+        if (reapplyRemoteHandMaterialEveryFrame || remoteHandVisibilityChanged)
         {
             ApplyRemoteHandStyle();
         }
@@ -913,12 +941,84 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private Color ResolveRemoteHandColor()
     {
-        float brightness = Mathf.Max(0f, remoteHandBrightness);
+        float brightness = Mathf.Max(0f, effectiveRemoteHandBrightness);
         return new Color(
             Mathf.Clamp01(remoteHandColor.r * brightness),
             Mathf.Clamp01(remoteHandColor.g * brightness),
             Mathf.Clamp01(remoteHandColor.b * brightness),
-            Mathf.Clamp01(remoteHandColor.a * remoteHandAlpha));
+            Mathf.Clamp01(remoteHandColor.a * effectiveRemoteHandAlpha));
+    }
+
+    private bool UpdateRemoteHandVisibilityForRoomLight(bool force)
+    {
+        float previousAlpha = effectiveRemoteHandAlpha;
+        float previousBrightness = effectiveRemoteHandBrightness;
+
+        if (!adaptRemoteHandVisibilityToRoomLight)
+        {
+            effectiveRemoteHandAlpha = remoteHandAlpha;
+            effectiveRemoteHandBrightness = remoteHandBrightness;
+            return HasRemoteHandVisibilityChanged(previousAlpha, previousBrightness);
+        }
+
+        float now = Application.isPlaying ? Time.unscaledTime : 0f;
+        if (!force && Application.isPlaying && now < nextRoomLightSampleTime)
+        {
+            return false;
+        }
+
+        nextRoomLightSampleTime = now + Mathf.Max(0.1f, roomLightSampleIntervalSeconds);
+
+        float roomLux = ReadRoomLightLux();
+        float lightFactor = Mathf.InverseLerp(darkRoomLux, brightRoomLux, roomLux);
+        effectiveRemoteHandBrightness = Mathf.Clamp(
+            Mathf.Lerp(darkRoomHandBrightness, brightRoomHandBrightness, lightFactor),
+            0.05f,
+            1.5f);
+        effectiveRemoteHandAlpha = Mathf.Clamp01(
+            Mathf.Lerp(darkRoomHandAlpha, brightRoomHandAlpha, lightFactor));
+
+        return force || HasRemoteHandVisibilityChanged(previousAlpha, previousBrightness);
+    }
+
+    private float ReadRoomLightLux()
+    {
+#if ENABLE_WINMD_SUPPORT
+        try
+        {
+            if (ambientLightSensor == null)
+            {
+                ambientLightSensor = LightSensor.GetDefault();
+            }
+
+            if (ambientLightSensor != null)
+            {
+                LightSensorReading reading = ambientLightSensor.GetCurrentReading();
+                if (reading != null)
+                {
+                    return Mathf.Max(0f, (float)reading.IlluminanceInLux);
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
+#endif
+
+        // Editor and unsupported devices do not expose the HoloLens light sensor, so use scene ambient light as a stable preview value.
+        float ambientFactor = Mathf.Clamp01(RenderSettings.ambientIntensity);
+        if (ambientFactor <= 0f)
+        {
+            ambientFactor = Mathf.Clamp01(RenderSettings.ambientLight.maxColorComponent);
+        }
+
+        return Mathf.Lerp(darkRoomLux, brightRoomLux, ambientFactor > 0f ? ambientFactor : 0.5f);
+    }
+
+    private bool HasRemoteHandVisibilityChanged(float previousAlpha, float previousBrightness)
+    {
+        return !Mathf.Approximately(previousAlpha, effectiveRemoteHandAlpha) ||
+               !Mathf.Approximately(previousBrightness, effectiveRemoteHandBrightness);
     }
 
     private static void SetHandMeshVisible(Transform root, bool visible)
@@ -2145,6 +2245,16 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         webRtcLocalSignalingPort = Mathf.Clamp(webRtcLocalSignalingPort, 1, 65535);
         webRtcRemoteSignalingPort = Mathf.Clamp(webRtcRemoteSignalingPort, 1, 65535);
         webRtcStartupDelaySeconds = Mathf.Max(0f, webRtcStartupDelaySeconds);
+        remoteHandAlpha = Mathf.Clamp(remoteHandAlpha, 0.02f, 1f);
+        remoteHandBrightness = Mathf.Clamp(remoteHandBrightness, 0.05f, 1.5f);
+        roomLightSampleIntervalSeconds = Mathf.Max(0.1f, roomLightSampleIntervalSeconds);
+        darkRoomLux = Mathf.Max(0f, darkRoomLux);
+        brightRoomLux = Mathf.Max(darkRoomLux + 1f, brightRoomLux);
+        darkRoomHandBrightness = Mathf.Clamp(darkRoomHandBrightness, 0.05f, 1.5f);
+        brightRoomHandBrightness = Mathf.Clamp(brightRoomHandBrightness, 0.05f, 1.5f);
+        darkRoomHandAlpha = Mathf.Clamp(darkRoomHandAlpha, 0.02f, 1f);
+        brightRoomHandAlpha = Mathf.Clamp(brightRoomHandAlpha, 0.02f, 1f);
+        UpdateRemoteHandVisibilityForRoomLight(true);
     }
 
     [Serializable]
