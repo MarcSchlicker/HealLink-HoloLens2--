@@ -138,6 +138,7 @@ public sealed class WebRtcAudioPeer : MonoBehaviour
         }
 #endif
 
+        // Build the WebRTC objects at runtime so the scene stays small and the role can be configured in code.
         runtimeRoot = new GameObject(isOfferer
             ? "QuestWebRtcAudioPeer"
             : "HoloLensWebRtcAudioPeer");
@@ -188,6 +189,7 @@ public sealed class WebRtcAudioPeer : MonoBehaviour
 
     private void HandleRemoteAudioStarted(IAudioSource source)
     {
+        // MixedReality-WebRTC pushes decoded samples through its AudioRenderer into this AudioSource.
         if (audioRenderer == null || outputSource == null)
         {
             return;

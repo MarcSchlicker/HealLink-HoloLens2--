@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -11,6 +9,9 @@ using Microsoft.MixedReality.Toolkit.Input;
 using Microsoft.MixedReality.Toolkit.Utilities;
 using UnityEngine;
 
+/// <summary>
+/// Receives Quest-side hand and drawing packets and applies them to the HoloLens scene.
+/// </summary>
 [DisallowMultipleComponent]
 public sealed class QuestHandDataReceiver : MonoBehaviour
 {
@@ -19,7 +20,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
     public bool startReceiverOnEnable = true;
 
     [Header("WebRTC audio")]
-    [Tooltip("Use bidirectional WebRTC audio instead of PCM audio embedded in hand-data packets.")]
+    [Tooltip("Enable bidirectional WebRTC audio between Quest and HoloLens.")]
     public bool useWebRtcAudio = true;
     public int webRtcLocalSignalingPort = 5076;
     public int webRtcRemoteSignalingPort = 5077;
@@ -63,31 +64,6 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
     public float fallbackStrokeWidth = 0.01f;
     public bool useSenderStrokeStyle = true;
 
-    [Header("Remote audio")]
-    public bool receiveRemoteAudio = true;
-    public AudioSource remoteAudioSource;
-    public float remoteAudioVolume = 1f;
-    [Tooltip("Gain applied to received Quest microphone samples before playback. Values above 1 boost quiet microphones.")]
-    public float remoteAudioGain = 4f;
-    public float remoteAudioSpatialBlend = 0f;
-    public int remoteAudioBufferSeconds = 1;
-    [Tooltip("Seconds of received audio to buffer before starting playback.")]
-    public float remoteAudioStartBufferSeconds = 0.25f;
-    public bool logRemoteAudioStatus = false;
-    public bool saveRemoteAudioDiagnosticsToFile = false;
-    public string audioDiagnosticsFolderName = "AudioDiagnostics";
-    [Tooltip("When the receiver creates the remote audio source itself, parent it to the target camera so non-spatial audio stays head-locked.")]
-    public bool attachCreatedRemoteAudioToTargetCamera = true;
-    [Tooltip("Save incoming Quest microphone packets to a WAV file for debugging on device and in the editor.")]
-    public bool saveIncomingAudioWav = false;
-    public string audioWavFolderName = "AudioWavCaptures";
-    public string incomingAudioWavSubfolderName = "Receiver";
-    public string incomingAudioWavFileName = "quest_receiver_incoming.wav";
-    public bool timestampAudioWavFiles = true;
-    [Range(0.1f, 1f)]
-    [Tooltip("Ceiling used by the soft limiter after remoteAudioGain. Lower values reduce distortion and clipping.")]
-    public float remoteAudioLimiterCeiling = 0.9f;
-
     [Header("MRTK pointer visuals")]
     public bool disableMrtkHandRays = true;
     public bool disableMrtkControllerRays = false;
@@ -118,19 +94,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
     private Material remoteHandMaterial;
     private Material remoteStrokeMaterial;
     private Transform createdStrokeRoot;
-    private RemoteAudioStream remoteAudioStream;
-    private GameObject createdRemoteAudioObject;
     private int anonymousStrokeId = 1;
-    private float nextRemoteAudioStatusLogTime;
-    private float nextRemoteAudioMonitorLogTime;
-    private float lastRemoteAudioPacketTime;
-    private int receivedRemoteAudioPacketCount;
-    private float[] remoteAudioOutputProbeBuffer;
-    private StreamWriter remoteAudioDiagnosticsWriter;
-    private float nextRemoteAudioDiagnosticsFlushTime;
-    private Pcm16WavWriter incomingAudioWavWriter;
-    private int incomingAudioWavSampleRate;
-    private int incomingAudioWavChannels;
     private bool mrtkPointerSettingsApplied;
     private bool lastDisableMrtkHandRays;
     private bool lastDisableMrtkControllerRays;
@@ -140,6 +104,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private void OnEnable()
     {
+        // Bring up all runtime subsystems that need scene references: audio, hand rigs, styling, and networking.
         StartWebRtcAudio();
 
         if (autoFindHandRoots)
@@ -168,16 +133,12 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
 
         ApplyMrtkPointerSettingsWhenReady();
-        LogRemoteAudioMonitor();
     }
 
     private void OnDisable()
     {
         StopWebRtcAudio();
         StopReceiver();
-        StopRemoteAudioPlayback();
-        CloseRemoteAudioDiagnosticsWriter();
-        CloseIncomingAudioWavWriter();
     }
 
     private void OnDestroy()
@@ -186,16 +147,6 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         leftJointVisual.Destroy();
         rightJointVisual.Destroy();
         DestroyRemoteStrokes();
-        StopRemoteAudioPlayback();
-
-        if (remoteAudioStream != null)
-        {
-            remoteAudioStream.Dispose();
-            remoteAudioStream = null;
-        }
-
-        CloseRemoteAudioDiagnosticsWriter();
-        CloseIncomingAudioWavWriter();
 
         if (remoteHandMaterial != null)
         {
@@ -209,11 +160,6 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
             remoteStrokeMaterial = null;
         }
 
-        if (createdRemoteAudioObject != null)
-        {
-            Destroy(createdRemoteAudioObject);
-            createdRemoteAudioObject = null;
-        }
     }
 
     private void Update()
@@ -278,6 +224,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private void ProcessPacket(string json)
     {
+        // Each UDP message is a full snapshot: hand poses plus optional stroke payloads.
         if (string.IsNullOrEmpty(json))
         {
             return;
@@ -311,11 +258,11 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
 
         ApplyStrokeEvents(packet.strokeEvents, posesAreCameraRelative);
-        ApplyAudioFrame(packet.audioFrame);
     }
 
     public void StartReceiver()
     {
+        // UDP receive runs on a background thread and queues JSON for Unity's main thread.
         if (running)
         {
             return;
@@ -394,6 +341,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private void ApplyHand(HandFrame hand, bool posesAreCameraRelative)
     {
+        // Convert sender joint names into normalized keys used by the MRTK retargeter.
         if (hand == null)
         {
             return;
@@ -538,6 +486,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private bool TryGetWorldPose(PoseData pose, bool poseIsCameraRelative, out JointWorldPose worldPose)
     {
+        // Quest packets usually arrive in camera-local space, so convert them through the HoloLens camera.
         worldPose = new JointWorldPose
         {
             position = Vector3.zero,
@@ -591,6 +540,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
 
     private void ApplyStrokeEvents(StrokeEvent[] strokeEvents, bool posesAreCameraRelative)
     {
+        // Remote drawing is represented as keyed stroke lifetimes: begin, append points, then complete.
         if (!receiveRemoteStrokes || strokeEvents == null)
         {
             return;
@@ -868,467 +818,9 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
     }
 
-    private void ApplyAudioFrame(AudioFrame audioFrame)
-    {
-        if (!receiveRemoteAudio ||
-            audioFrame == null ||
-            string.IsNullOrEmpty(audioFrame.samplesBase64) ||
-            !string.Equals(audioFrame.encoding, "PCM16_LE_BASE64", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        try
-        {
-            byte[] pcmBytes = Convert.FromBase64String(audioFrame.samplesBase64);
-            if (pcmBytes == null || pcmBytes.Length < 2)
-            {
-                return;
-            }
-
-            AudioSource source = EnsureRemoteAudioSource();
-            if (source == null)
-            {
-                return;
-            }
-
-            int sampleRate = Mathf.Clamp(audioFrame.sampleRate, 8000, 48000);
-            int channels = Mathf.Clamp(audioFrame.channels, 1, 2);
-            int bufferSeconds = Mathf.Clamp(remoteAudioBufferSeconds, 1, 10);
-            MeasurePcm16(pcmBytes, out float inputRms, out float inputPeak);
-            WriteIncomingAudioWav(sampleRate, channels, pcmBytes, pcmBytes.Length);
-            receivedRemoteAudioPacketCount++;
-            lastRemoteAudioPacketTime = Time.unscaledTime;
-
-            if (remoteAudioStream == null)
-            {
-                remoteAudioStream = new RemoteAudioStream();
-            }
-
-            source.volume = Mathf.Max(0f, remoteAudioVolume);
-            source.spatialBlend = Mathf.Clamp01(remoteAudioSpatialBlend);
-            remoteAudioStream.Configure(source, sampleRate, channels, bufferSeconds);
-            int enqueuedSampleValues = remoteAudioStream.EnqueuePcm16(pcmBytes, channels, Mathf.Max(0f, remoteAudioGain), remoteAudioLimiterCeiling);
-
-            if (logRemoteAudioStatus && Time.unscaledTime >= nextRemoteAudioStatusLogTime)
-            {
-                nextRemoteAudioStatusLogTime = Time.unscaledTime + 2f;
-                MeasureAudioSourceOutput(source, ref remoteAudioOutputProbeBuffer, out float loggedOutputRms, out float loggedOutputPeak);
-                Debug.Log("QuestHandDataReceiver remote audio packet sequence=" + audioFrame.sequence +
-                          ", bytes=" + pcmBytes.Length +
-                          ", enqueuedSampleValues=" + enqueuedSampleValues +
-                          ", queuedSampleValues=" + remoteAudioStream.QueuedSampleValueCount +
-                          ", sourcePlaying=" + source.isPlaying +
-                          ", inputRms=" + inputRms.ToString("F4") +
-                          ", inputPeak=" + inputPeak.ToString("F4") +
-                          ", outputRms=" + loggedOutputRms.ToString("F4") +
-                          ", outputPeak=" + loggedOutputPeak.ToString("F4"));
-            }
-
-            int startBufferSampleValues = Mathf.Max(1, Mathf.RoundToInt(sampleRate * channels * Mathf.Max(0f, remoteAudioStartBufferSeconds)));
-            if (!source.isPlaying && remoteAudioStream.QueuedSampleValueCount >= startBufferSampleValues)
-            {
-                source.Play();
-            }
-
-            MeasureAudioSourceOutput(source, ref remoteAudioOutputProbeBuffer, out float outputRms, out float outputPeak);
-            WriteRemoteAudioDiagnosticsRow("packet", audioFrame.sequence, pcmBytes.Length, enqueuedSampleValues, remoteAudioStream.QueuedSampleValueCount, source.isPlaying, inputRms, inputPeak, outputRms, outputPeak);
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("QuestHandDataReceiver could not decode remote audio: " + e.Message);
-        }
-    }
-
-    private AudioSource EnsureRemoteAudioSource()
-    {
-        if (remoteAudioSource != null)
-        {
-            ConfigureRemoteAudioSource(remoteAudioSource);
-            return remoteAudioSource;
-        }
-
-        if (createdRemoteAudioObject == null)
-        {
-            createdRemoteAudioObject = new GameObject("RemoteQuestAudio");
-        }
-
-        Transform audioParent = attachCreatedRemoteAudioToTargetCamera && targetCamera != null ? targetCamera : transform;
-        createdRemoteAudioObject.transform.SetParent(audioParent, false);
-        createdRemoteAudioObject.transform.localPosition = Vector3.zero;
-        createdRemoteAudioObject.transform.localRotation = Quaternion.identity;
-
-        remoteAudioSource = createdRemoteAudioObject.GetComponent<AudioSource>();
-        if (remoteAudioSource == null)
-        {
-            remoteAudioSource = createdRemoteAudioObject.AddComponent<AudioSource>();
-        }
-
-        ConfigureRemoteAudioSource(remoteAudioSource);
-        return remoteAudioSource;
-    }
-
-    private void ConfigureRemoteAudioSource(AudioSource source)
-    {
-        if (source == null)
-        {
-            return;
-        }
-
-        source.playOnAwake = false;
-        source.loop = true;
-        source.spatialBlend = Mathf.Clamp01(remoteAudioSpatialBlend);
-        source.volume = Mathf.Max(0f, remoteAudioVolume);
-        source.spatialize = false;
-        source.dopplerLevel = 0f;
-        source.panStereo = 0f;
-        source.bypassEffects = true;
-        source.bypassListenerEffects = true;
-        source.bypassReverbZones = true;
-        source.ignoreListenerPause = true;
-        EnsureUsableAudioListener();
-    }
-
-    private void EnsureUsableAudioListener()
-    {
-        AudioListener.pause = false;
-        AudioListener.volume = 1f;
-        if (FindObjectOfType<AudioListener>() != null)
-        {
-            return;
-        }
-
-        GameObject listenerObject = targetCamera != null ? targetCamera.gameObject : gameObject;
-        listenerObject.AddComponent<AudioListener>();
-        Debug.LogWarning("QuestHandDataReceiver added a missing AudioListener so remote audio can be heard on device.");
-    }
-
-    private void LogRemoteAudioMonitor()
-    {
-        if (!logRemoteAudioStatus || Time.unscaledTime < nextRemoteAudioMonitorLogTime)
-        {
-            return;
-        }
-
-        nextRemoteAudioMonitorLogTime = Time.unscaledTime + 2f;
-        AudioSource source = remoteAudioSource;
-        int queuedSampleValues = remoteAudioStream != null ? remoteAudioStream.QueuedSampleValueCount : 0;
-        MeasureAudioSourceOutput(source, ref remoteAudioOutputProbeBuffer, out float outputRms, out float outputPeak);
-        float secondsSincePacket = receivedRemoteAudioPacketCount > 0 ? Time.unscaledTime - lastRemoteAudioPacketTime : -1f;
-        WriteRemoteAudioDiagnosticsRow("monitor", -1, 0, 0, queuedSampleValues, source != null && source.isPlaying, 0f, 0f, outputRms, outputPeak);
-
-        Debug.Log("QuestHandDataReceiver remote audio monitor: packets=" + receivedRemoteAudioPacketCount +
-                  ", secondsSincePacket=" + secondsSincePacket.ToString("F2") +
-                  ", hasSource=" + (source != null) +
-                  ", sourcePlaying=" + (source != null && source.isPlaying) +
-                  ", queuedSampleValues=" + queuedSampleValues +
-                  ", outputRms=" + outputRms.ToString("F4") +
-                  ", outputPeak=" + outputPeak.ToString("F4"));
-    }
-
-    private void WriteRemoteAudioDiagnosticsRow(string eventName, int sequence, int byteCount, int enqueuedSampleValues, int queuedSampleValues, bool sourcePlaying, float inputRms, float inputPeak, float outputRms, float outputPeak)
-    {
-        StreamWriter writer = GetRemoteAudioDiagnosticsWriter();
-        if (writer == null)
-        {
-            return;
-        }
-
-        writer.WriteLine(string.Join(",",
-            FormatFloat(Time.unscaledTime),
-            eventName,
-            sequence.ToString(CultureInfo.InvariantCulture),
-            byteCount.ToString(CultureInfo.InvariantCulture),
-            enqueuedSampleValues.ToString(CultureInfo.InvariantCulture),
-            queuedSampleValues.ToString(CultureInfo.InvariantCulture),
-            sourcePlaying ? "1" : "0",
-            FormatFloat(inputRms),
-            FormatFloat(inputPeak),
-            FormatFloat(outputRms),
-            FormatFloat(outputPeak)));
-
-        FlushRemoteAudioDiagnosticsIfNeeded(writer);
-    }
-
-    private StreamWriter GetRemoteAudioDiagnosticsWriter()
-    {
-        if (!saveRemoteAudioDiagnosticsToFile)
-        {
-            return null;
-        }
-
-        if (remoteAudioDiagnosticsWriter != null)
-        {
-            return remoteAudioDiagnosticsWriter;
-        }
-
-        try
-        {
-            string directory = GetAudioDiagnosticsDirectory();
-            Directory.CreateDirectory(directory);
-            string filePath = Path.Combine(directory, "quest_receiver_audio.csv");
-            bool writeHeader = !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
-            remoteAudioDiagnosticsWriter = new StreamWriter(filePath, true);
-            if (writeHeader)
-            {
-                remoteAudioDiagnosticsWriter.WriteLine("time,event,sequence,byteCount,enqueuedSampleValues,queuedSampleValues,sourcePlaying,inputRms,inputPeak,outputRms,outputPeak");
-            }
-
-            Debug.Log("QuestHandDataReceiver remote audio diagnostics file: " + filePath);
-            return remoteAudioDiagnosticsWriter;
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("QuestHandDataReceiver could not open remote audio diagnostics file: " + e.Message);
-            saveRemoteAudioDiagnosticsToFile = false;
-            return null;
-        }
-    }
-
-    private string GetAudioDiagnosticsDirectory()
-    {
-#if UNITY_EDITOR
-        string root = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-#else
-        string root = Application.persistentDataPath;
-#endif
-        string folderName = string.IsNullOrEmpty(audioDiagnosticsFolderName) ? "AudioDiagnostics" : audioDiagnosticsFolderName;
-        return Path.Combine(root, folderName);
-    }
-
-    private void FlushRemoteAudioDiagnosticsIfNeeded(StreamWriter writer)
-    {
-        if (Time.unscaledTime < nextRemoteAudioDiagnosticsFlushTime)
-        {
-            return;
-        }
-
-        nextRemoteAudioDiagnosticsFlushTime = Time.unscaledTime + 1f;
-        writer.Flush();
-    }
-
-    private void CloseRemoteAudioDiagnosticsWriter()
-    {
-        if (remoteAudioDiagnosticsWriter == null)
-        {
-            return;
-        }
-
-        remoteAudioDiagnosticsWriter.Flush();
-        remoteAudioDiagnosticsWriter.Dispose();
-        remoteAudioDiagnosticsWriter = null;
-    }
-
-    private void WriteIncomingAudioWav(int sampleRate, int channels, byte[] pcmBytes, int byteCount)
-    {
-        if (!saveIncomingAudioWav || pcmBytes == null || byteCount <= 0)
-        {
-            return;
-        }
-
-        try
-        {
-            sampleRate = Mathf.Clamp(sampleRate, 8000, 48000);
-            channels = Mathf.Clamp(channels, 1, 2);
-            if (incomingAudioWavWriter == null ||
-                incomingAudioWavSampleRate != sampleRate ||
-                incomingAudioWavChannels != channels)
-            {
-                CloseIncomingAudioWavWriter();
-                string directory = GetAudioWavDirectory(incomingAudioWavSubfolderName);
-                string filePath = BuildAudioWavPath(directory, incomingAudioWavFileName, timestampAudioWavFiles);
-                incomingAudioWavWriter = new Pcm16WavWriter(filePath, sampleRate, channels);
-                incomingAudioWavSampleRate = sampleRate;
-                incomingAudioWavChannels = channels;
-                Debug.Log("QuestHandDataReceiver incoming audio WAV file: " + filePath);
-            }
-
-            incomingAudioWavWriter.WritePcm16(pcmBytes, 0, byteCount);
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("QuestHandDataReceiver could not write incoming audio WAV: " + e.Message);
-            CloseIncomingAudioWavWriter();
-            saveIncomingAudioWav = false;
-        }
-    }
-
-    private void CloseIncomingAudioWavWriter()
-    {
-        if (incomingAudioWavWriter == null)
-        {
-            return;
-        }
-
-        incomingAudioWavWriter.Dispose();
-        incomingAudioWavWriter = null;
-        incomingAudioWavSampleRate = 0;
-        incomingAudioWavChannels = 0;
-    }
-
-    private string GetAudioWavDirectory(string subfolderName)
-    {
-#if UNITY_EDITOR
-        string root = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-#else
-        string root = Application.persistentDataPath;
-#endif
-        string folderName = string.IsNullOrEmpty(audioWavFolderName) ? "AudioWavCaptures" : audioWavFolderName;
-        string directory = Path.Combine(root, folderName);
-        if (!string.IsNullOrEmpty(subfolderName))
-        {
-            directory = Path.Combine(directory, subfolderName);
-        }
-
-        return directory;
-    }
-
-    private static string BuildAudioWavPath(string directory, string fileName, bool includeTimestamp)
-    {
-        Directory.CreateDirectory(directory);
-        string safeFileName = string.IsNullOrEmpty(fileName) ? "audio.wav" : fileName;
-        string extension = Path.GetExtension(safeFileName);
-        if (string.IsNullOrEmpty(extension))
-        {
-            extension = ".wav";
-        }
-
-        string name = Path.GetFileNameWithoutExtension(safeFileName);
-        if (string.IsNullOrEmpty(name))
-        {
-            name = "audio";
-        }
-
-        if (includeTimestamp)
-        {
-            name += "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-        }
-
-        return Path.Combine(directory, name + extension);
-    }
-
-    private static float ApplySoftLimiter(float value, float ceiling)
-    {
-        ceiling = Mathf.Clamp(ceiling, 0.1f, 1f);
-        float abs = Mathf.Abs(value);
-        if (abs <= ceiling)
-        {
-            return value;
-        }
-
-        float sign = value < 0f ? -1f : 1f;
-        float excess = abs - ceiling;
-        float limited = ceiling + (1f - ceiling) * (excess / (excess + 1f));
-        return sign * Mathf.Min(limited, 1f);
-    }
-
-    private static string FormatFloat(float value)
-    {
-        return value.ToString("F6", CultureInfo.InvariantCulture);
-    }
-
-    private static void MeasureAudioSourceOutput(AudioSource source, ref float[] buffer, out float rms, out float peak)
-    {
-        rms = 0f;
-        peak = 0f;
-        if (source == null || source.clip == null)
-        {
-            return;
-        }
-
-        if (buffer == null || buffer.Length != 256)
-        {
-            buffer = new float[256];
-        }
-
-        try
-        {
-            source.GetOutputData(buffer, 0);
-            MeasureFloatSamples(buffer, buffer.Length, out rms, out peak);
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("QuestHandDataReceiver could not read remote AudioSource output data: " + e.Message);
-        }
-    }
-
-    private static void MeasurePcm16(byte[] pcmBytes, out float rms, out float peak)
-    {
-        rms = 0f;
-        peak = 0f;
-        if (pcmBytes == null || pcmBytes.Length < 2)
-        {
-            return;
-        }
-
-        int sampleValueCount = pcmBytes.Length / 2;
-        double sumSquares = 0.0;
-        for (int i = 0; i < sampleValueCount; i++)
-        {
-            float sample = DecodePcm16(pcmBytes, i * 2);
-            float abs = Mathf.Abs(sample);
-            if (abs > peak)
-            {
-                peak = abs;
-            }
-
-            sumSquares += sample * sample;
-        }
-
-        rms = Mathf.Sqrt((float)(sumSquares / sampleValueCount));
-    }
-
-    private static float DecodePcm16(byte[] pcmBytes, int byteIndex)
-    {
-        if (byteIndex < 0 || byteIndex + 1 >= pcmBytes.Length)
-        {
-            return 0f;
-        }
-
-        short sample = (short)(pcmBytes[byteIndex] | (pcmBytes[byteIndex + 1] << 8));
-        return sample < 0 ? sample / 32768f : sample / 32767f;
-    }
-
-    private static void MeasureFloatSamples(float[] samples, int count, out float rms, out float peak)
-    {
-        rms = 0f;
-        peak = 0f;
-        if (samples == null || count <= 0)
-        {
-            return;
-        }
-
-        double sumSquares = 0.0;
-        int safeCount = Mathf.Min(count, samples.Length);
-        for (int i = 0; i < safeCount; i++)
-        {
-            float abs = Mathf.Abs(samples[i]);
-            if (abs > peak)
-            {
-                peak = abs;
-            }
-
-            sumSquares += samples[i] * samples[i];
-        }
-
-        rms = Mathf.Sqrt((float)(sumSquares / safeCount));
-    }
-
-    private void StopRemoteAudioPlayback()
-    {
-        if (remoteAudioSource != null)
-        {
-            remoteAudioSource.Stop();
-        }
-
-        if (remoteAudioStream != null)
-        {
-            remoteAudioStream.Clear();
-        }
-    }
-
     private void ApplyMrtkPointerSettingsWhenReady()
     {
+        // MRTK creates pointers lazily, so retry for a short time after startup and when inspector values change.
         bool valuesUnchanged = mrtkPointerSettingsApplied &&
                                lastDisableMrtkHandRays == disableMrtkHandRays &&
                                lastDisableMrtkControllerRays == disableMrtkControllerRays &&
@@ -2018,161 +1510,7 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
     }
 
-    private sealed class RemoteAudioStream
-    {
-        private readonly object audioLock = new object();
-        private readonly Queue<float> samples = new Queue<float>(48000);
-        private AudioSource source;
-        private AudioClip clip;
-        private int sampleRate;
-        private int channels;
-        private int maxQueuedSampleValues;
-
-        public int QueuedSampleValueCount
-        {
-            get
-            {
-                lock (audioLock)
-                {
-                    return samples.Count;
-                }
-            }
-        }
-
-        public void Configure(AudioSource audioSource, int sampleRate, int channels, int bufferSeconds)
-        {
-            if (audioSource == null)
-            {
-                return;
-            }
-
-            sampleRate = Mathf.Clamp(sampleRate, 8000, 48000);
-            channels = Mathf.Clamp(channels, 1, 2);
-            bufferSeconds = Mathf.Clamp(bufferSeconds, 1, 10);
-            maxQueuedSampleValues = sampleRate * channels * bufferSeconds;
-
-            if (source == audioSource &&
-                this.sampleRate == sampleRate &&
-                this.channels == channels &&
-                clip != null)
-            {
-                return;
-            }
-
-            Clear();
-
-            if (clip != null)
-            {
-                UnityEngine.Object.Destroy(clip);
-                clip = null;
-            }
-
-            source = audioSource;
-            this.sampleRate = sampleRate;
-            this.channels = channels;
-            clip = AudioClip.Create("RemoteQuestMicrophoneStream", sampleRate * bufferSeconds, channels, sampleRate, true, ReadAudio);
-            source.clip = clip;
-            source.loop = true;
-            source.playOnAwake = false;
-        }
-
-        public int EnqueuePcm16(byte[] pcmBytes, int sourceChannels, float gain, float limiterCeiling)
-        {
-            if (pcmBytes == null || pcmBytes.Length < 2 || channels <= 0)
-            {
-                return 0;
-            }
-
-            sourceChannels = Math.Max(1, sourceChannels);
-            gain = Mathf.Max(0f, gain);
-            int sourceSampleValueCount = pcmBytes.Length / 2;
-            int frameCount = sourceSampleValueCount / sourceChannels;
-            if (frameCount <= 0)
-            {
-                return 0;
-            }
-
-            float[] decoded = new float[frameCount * channels];
-            for (int frame = 0; frame < frameCount; frame++)
-            {
-                for (int targetChannel = 0; targetChannel < channels; targetChannel++)
-                {
-                    int sourceChannel = Math.Min(targetChannel, sourceChannels - 1);
-                    int sampleIndex = frame * sourceChannels + sourceChannel;
-                    decoded[frame * channels + targetChannel] = ApplySoftLimiter(DecodePcm16(pcmBytes, sampleIndex * 2) * gain, limiterCeiling);
-                }
-            }
-
-            lock (audioLock)
-            {
-                for (int i = 0; i < decoded.Length; i++)
-                {
-                    samples.Enqueue(decoded[i]);
-                }
-
-                while (samples.Count > maxQueuedSampleValues)
-                {
-                    samples.Dequeue();
-                }
-            }
-
-            return decoded.Length;
-        }
-
-        public void Clear()
-        {
-            lock (audioLock)
-            {
-                samples.Clear();
-            }
-        }
-
-        public void Dispose()
-        {
-            Clear();
-
-            if (source != null && source.clip == clip)
-            {
-                source.clip = null;
-            }
-
-            if (clip != null)
-            {
-                UnityEngine.Object.Destroy(clip);
-                clip = null;
-            }
-
-            source = null;
-        }
-
-        private void ReadAudio(float[] data)
-        {
-            if (data == null)
-            {
-                return;
-            }
-
-            lock (audioLock)
-            {
-                for (int i = 0; i < data.Length; i++)
-                {
-                    data[i] = samples.Count > 0 ? samples.Dequeue() : 0f;
-                }
-            }
-        }
-
-        private static float DecodePcm16(byte[] pcmBytes, int byteIndex)
-        {
-            if (byteIndex < 0 || byteIndex + 1 >= pcmBytes.Length)
-            {
-                return 0f;
-            }
-
-            short sample = (short)(pcmBytes[byteIndex] | (pcmBytes[byteIndex + 1] << 8));
-            return sample < 0 ? sample / 32768f : sample / 32767f;
-        }
-    }
-
+    // Maps normalized Quest joint poses onto the existing MRTK hand rig transforms.
     private sealed class HandRigRetargeter
     {
         private static readonly string[] RetargetOrder =
@@ -2802,95 +2140,11 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         }
     }
 
-    private sealed class Pcm16WavWriter : IDisposable
-    {
-        private readonly FileStream stream;
-        private readonly BinaryWriter writer;
-        private long dataByteCount;
-        private bool disposed;
-
-        public Pcm16WavWriter(string filePath, int sampleRate, int channels)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
-            stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            writer = new BinaryWriter(stream);
-            WriteHeader(sampleRate, channels);
-        }
-
-        public void WritePcm16(byte[] pcmBytes, int offset, int count)
-        {
-            if (disposed || pcmBytes == null || count <= 0)
-            {
-                return;
-            }
-
-            int safeOffset = Mathf.Clamp(offset, 0, pcmBytes.Length);
-            int safeCount = Mathf.Clamp(count, 0, pcmBytes.Length - safeOffset);
-            if (safeCount <= 0)
-            {
-                return;
-            }
-
-            writer.Write(pcmBytes, safeOffset, safeCount);
-            dataByteCount += safeCount;
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
-            {
-                return;
-            }
-
-            disposed = true;
-            writer.Flush();
-            stream.Seek(4, SeekOrigin.Begin);
-            writer.Write(ToUInt32Saturated(36 + dataByteCount));
-            stream.Seek(40, SeekOrigin.Begin);
-            writer.Write(ToUInt32Saturated(dataByteCount));
-            writer.Dispose();
-            stream.Dispose();
-        }
-
-        private void WriteHeader(int sampleRate, int channels)
-        {
-            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-            writer.Write((uint)36);
-            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-            writer.Write(Encoding.ASCII.GetBytes("fmt "));
-            writer.Write((uint)16);
-            writer.Write((ushort)1);
-            writer.Write((ushort)channels);
-            writer.Write((uint)sampleRate);
-            writer.Write((uint)(sampleRate * channels * 2));
-            writer.Write((ushort)(channels * 2));
-            writer.Write((ushort)16);
-            writer.Write(Encoding.ASCII.GetBytes("data"));
-            writer.Write((uint)0);
-        }
-
-        private static uint ToUInt32Saturated(long value)
-        {
-            if (value <= 0)
-            {
-                return 0;
-            }
-
-            return value > uint.MaxValue ? uint.MaxValue : (uint)value;
-        }
-    }
-
     private void OnValidate()
     {
         webRtcLocalSignalingPort = Mathf.Clamp(webRtcLocalSignalingPort, 1, 65535);
         webRtcRemoteSignalingPort = Mathf.Clamp(webRtcRemoteSignalingPort, 1, 65535);
         webRtcStartupDelaySeconds = Mathf.Max(0f, webRtcStartupDelaySeconds);
-        remoteAudioVolume = Mathf.Max(0f, remoteAudioVolume);
-        remoteAudioGain = Mathf.Max(0f, remoteAudioGain);
-        remoteAudioSpatialBlend = Mathf.Clamp01(remoteAudioSpatialBlend);
-        remoteAudioBufferSeconds = Mathf.Clamp(remoteAudioBufferSeconds, 1, 10);
-        remoteAudioStartBufferSeconds = Mathf.Max(0f, remoteAudioStartBufferSeconds);
-        remoteAudioLimiterCeiling = Mathf.Clamp(remoteAudioLimiterCeiling, 0.1f, 1f);
     }
 
     [Serializable]
@@ -2900,7 +2154,6 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         public string poseSpace;
         public HandFrame[] hands;
         public StrokeEvent[] strokeEvents;
-        public AudioFrame audioFrame;
     }
 
     [Serializable]
@@ -2927,18 +2180,6 @@ public sealed class QuestHandDataReceiver : MonoBehaviour
         public PoseData point;
         public float width;
         public Color color;
-        public float timestamp;
-    }
-
-    [Serializable]
-    private sealed class AudioFrame
-    {
-        public int sequence;
-        public int sampleRate;
-        public int channels;
-        public int sampleCount;
-        public string encoding;
-        public string samplesBase64;
         public float timestamp;
     }
 

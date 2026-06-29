@@ -4,6 +4,9 @@ using UnityEditor;
 using UnityEditor.Callbacks;
 using UnityEngine;
 
+/// <summary>
+/// Applies HealLink-specific UWP manifest settings and app logos after Unity generates the build.
+/// </summary>
 public class BuildPostProcessor
 {
     private const string AppIconAssetPath = "Assets/AppIcons/HealLinkTraineeIcon.png";
@@ -105,6 +108,7 @@ public class BuildPostProcessor
 
     private static void ReplaceLogoAssets(string pathToBuiltProject, string projectName)
     {
+        // Unity generates default logo files; replace them with the project icon in the required UWP sizes.
         string iconPath = Path.GetFullPath(AppIconAssetPath);
         string assetsDirectory = Path.Combine(pathToBuiltProject, projectName, "Assets");
 

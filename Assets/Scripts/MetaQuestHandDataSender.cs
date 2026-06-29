@@ -7,6 +7,9 @@ using System.Reflection;
 using System.Text;
 using UnityEngine;
 
+/// <summary>
+/// Sends Meta Quest hand skeleton poses to the HoloLens receiver over UDP.
+/// </summary>
 [DisallowMultipleComponent]
 public sealed class MetaQuestHandDataSender : MonoBehaviour
 {
@@ -69,6 +72,7 @@ public sealed class MetaQuestHandDataSender : MonoBehaviour
 
     private static MonoBehaviour FindSkeleton(bool left)
     {
+        // Reflection keeps this helper independent from a hard compile-time Oculus/Meta SDK reference.
         MonoBehaviour[] behaviours = FindObjectsOfType<MonoBehaviour>();
         for (int i = 0; i < behaviours.Length; i++)
         {
@@ -96,6 +100,7 @@ public sealed class MetaQuestHandDataSender : MonoBehaviour
 
     private void FillHand(MonoBehaviour skeleton, HandFrame hand, bool left)
     {
+        // Pack the wrist and all available skeleton bones into a Unity-serializable packet.
         hand.isTracked = false;
         hand.wrist = PoseData.Invalid;
         hand.joints = null;

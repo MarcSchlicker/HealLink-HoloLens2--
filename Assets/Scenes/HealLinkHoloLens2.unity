@@ -733,9 +733,7 @@ GameObject:
   - component: {fileID: 963194232}
   - component: {fileID: 963194230}
   - component: {fileID: 963194234}
-  - component: {fileID: 963194237}
   - component: {fileID: 963194238}
-  - component: {fileID: 963194239}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -884,29 +882,6 @@ MonoBehaviour:
   m_InputActionsPerSecond: 10
   m_RepeatDelay: 0.5
   m_ForceModuleActive: 0
---- !u!114 &963194237
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 963194225}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f7c5a9d6c0ee47f0bb2f2fa3109ea1c4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  recordOnStart: 0
-  microphoneDeviceName: 
-  sampleRate: 48000
-  ringBufferSeconds: 10
-  segmentSeconds: 30
-  wavGain: 16
-  wavLimiterCeiling: 0.95
-  logStatus: 1
-  folderName: HololensMicrophoneCaptures
-  filePrefix: hololens_microphone
-  timestampFiles: 1
 --- !u!114 &963194238
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -936,28 +911,6 @@ MonoBehaviour:
   showGuiFallback: 1
   fontSize: 24
   margin: {x: 12, y: 12}
---- !u!114 &963194239
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 963194225}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a6d1970f2bd3434db74c538c2d049e35, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  streamOnStart: 0
-  listenPort: 5066
-  maxQueuedPackets: 120
-  logStatus: 1
-  microphoneDeviceName: 
-  sampleRate: 48000
-  ringBufferSeconds: 10
-  packetSeconds: 0.02
-  streamGain: 16
-  streamLimiterCeiling: 0.95
 --- !u!21 &1269458073
 Material:
   serializedVersion: 6
@@ -1104,23 +1057,6 @@ MonoBehaviour:
   fallbackStrokeColor: {r: 1, g: 0, b: 0, a: 1}
   fallbackStrokeWidth: 0.01
   useSenderStrokeStyle: 1
-  receiveRemoteAudio: 0
-  remoteAudioSource: {fileID: 0}
-  remoteAudioVolume: 1
-  remoteAudioGain: 4
-  remoteAudioSpatialBlend: 0
-  remoteAudioBufferSeconds: 1
-  remoteAudioStartBufferSeconds: 0.05
-  logRemoteAudioStatus: 0
-  saveRemoteAudioDiagnosticsToFile: 0
-  audioDiagnosticsFolderName: AudioDiagnostics
-  attachCreatedRemoteAudioToTargetCamera: 1
-  saveIncomingAudioWav: 0
-  audioWavFolderName: AudioWavCaptures
-  incomingAudioWavSubfolderName: Receiver
-  incomingAudioWavFileName: quest_receiver_incoming.wav
-  timestampAudioWavFiles: 1
-  remoteAudioLimiterCeiling: 0.9
   disableMrtkHandRays: 1
   disableMrtkControllerRays: 0
   disableMrtkGazePointer: 0

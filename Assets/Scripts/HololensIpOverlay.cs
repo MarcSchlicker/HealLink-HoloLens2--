@@ -8,6 +8,9 @@ using Windows.Networking;
 using Windows.Networking.Connectivity;
 #endif
 
+/// <summary>
+/// Shows the current local IPv4 address as a small camera-anchored overlay.
+/// </summary>
 [ExecuteAlways]
 [DisallowMultipleComponent]
 public sealed class HololensIpOverlay : MonoBehaviour
@@ -151,6 +154,7 @@ public sealed class HololensIpOverlay : MonoBehaviour
 
     private void EnsureWorldOverlay()
     {
+        // Reuse the serialized overlay when it exists, otherwise create a minimal text panel under the camera.
         Transform parent = ResolveTargetCamera();
         if (parent == null)
         {
@@ -441,6 +445,7 @@ public sealed class HololensIpOverlay : MonoBehaviour
     {
         try
         {
+            // Prefer the IP assigned to the active network adapter, then fall back to any usable IPv4 address.
             string fallbackAddress = string.Empty;
             ConnectionProfile connectionProfile = NetworkInformation.GetInternetConnectionProfile();
             Guid? activeAdapterId = null;

@@ -58,14 +58,6 @@ ExportedObj/
 *.pdb.meta
 *.mdb.meta
 
-# Local audio/debug captures generated while testing streaming.
-/[Aa]udio[Dd]iagnostics/
-/[Aa]udio[Ww]av[Cc]aptures/
-/[Aa]ssets/[Aa]udio[Dd]ebug/
-/[Aa]ssets/[Qq]uest[Aa]udio[Oo]utput/
-/[Aa]ssets/[Hh]ololens_[Mm]icrophone_*.wav
-/[Aa]ssets/[Hh]ololens_[Mm]icrophone_*.wav.meta
-
 # Unity recovery scenes are local editor crash/recovery state.
 /[Aa]ssets/_Recovery/
 

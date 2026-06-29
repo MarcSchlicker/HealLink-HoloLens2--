@@ -226,6 +226,7 @@ public sealed class LanWebRtcSignaler : Signaler
 
     private void ReceiveLoop()
     {
+        // Receive on a background thread and hand JSON messages back to Unity's main thread in Update().
         IPEndPoint sender = new IPEndPoint(IPAddress.Any, 0);
         while (receiving)
         {
@@ -263,6 +264,7 @@ public sealed class LanWebRtcSignaler : Signaler
     {
         try
         {
+            // Duplicate message ids are ignored because SDP/ICE packets are retried over UDP.
             SignalWireMessage message = JsonUtility.FromJson<SignalWireMessage>(received.json);
             if (message == null ||
                 !string.Equals(message.protocol, SignalWireMessage.Protocol, StringComparison.Ordinal))
@@ -422,6 +424,7 @@ public sealed class LanWebRtcSignaler : Signaler
 
     private void SendDatagram(byte[] bytes)
     {
+        // The answerer learns the remote endpoint from the first incoming offer; the offerer uses remoteHost.
         if (bytes == null || bytes.Length == 0 || socket == null)
         {
             return;
